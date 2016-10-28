@@ -1,57 +1,51 @@
-'use strict';
+'use strict'
+const Knex = require('knex')
+const Hoek = require('hoek')
 
-const Hoek = require('hoek');
-let Pg = require('pg');
-
-
+let postgres
 const DEFAULTS = {
-    connectionString: undefined,
-    native: false,
-    attach: 'onPreHandler',
-    detach: 'tail'
-};
-
+  connection: undefined,
+  attach: 'onPreHandler',
+  detach: 'tail',
+  searchPath: 'public',
+  pool: {
+    destroy: client => client.end(),
+    max: 10,
+    min: 2,
+    idleTimeoutMillis: 30000,
+    log: true
+  },
+  debug: false,
+  acquireConnectionTimeout: 10000
+}
 
 exports.register = function (server, options, next) {
+  const config = Hoek.applyToDefaults(DEFAULTS, options)
+  const { connection, pool, searchPath, acquireConnectionTimeout, debug } = config
+  Hoek.assert(connection !== undefined, new Error('connection is undefined'))
+  postgres = Knex({
+    client: 'pg',
+    connection,
+    pool,
+    searchPath,
+    acquireConnectionTimeout,
+    debug
+  })
 
-    const config = Hoek.applyToDefaults(DEFAULTS, options);
+  server.ext(config.attach, (request, reply) => {
+    request.pg = postgres
+    reply.continue()
+  })
 
-    if (config.native) {
-        Pg = require('pg').native;
+  server.on(config.detach, (request, err) => {
+    if (request.pg) {
+      request.pg.destroy()
     }
+  })
 
-    server.ext(config.attach, (request, reply) => {
-
-        Pg.connect(config.connectionString, (err, client, done) => {
-
-            if (err) {
-                reply(err);
-                return;
-            }
-
-            request.pg = {
-                client,
-                done,
-                kill: false
-            };
-
-            reply.continue();
-        });
-    });
-
-
-    server.on(config.detach, (request, err) => {
-
-        if (request.pg) {
-            request.pg.done(request.pg.kill);
-        }
-    });
-
-
-    next();
-};
-
+  next()
+}
 
 exports.register.attributes = {
-    pkg: require('./package.json')
-};
+  pkg: require('./package.json')
+}

@@ -3,7 +3,8 @@ language: node_js
 node_js:
   - "4"
   - "6"
+  - "7"
 before_script:
-  - psql -c 'CREATE DATABASE hapi_node_postgres;' -U postgres
+  - psql -c 'CREATE DATABASE hapi-knex-postgres;' -U postgres
 env:
   - CC=clang CXX=clang++ npm_config_clang=1

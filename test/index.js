@@ -1,158 +1,110 @@
-'use strict';
+'use strict'
 
-const Lab = require('lab');
-const Code = require('code');
-const Hapi = require('hapi');
-const Proxyquire = require('proxyquire');
-
-
+const Lab = require('lab')
+const Code = require('code')
+const Hapi = require('hapi')
+const Hoek = require('hoek')
+const Proxyquire = require('proxyquire')
+let tmp = null
 const stub = {
-    pg: {}
-};
+  knex: function (constructorObj) {
+    tmp = constructorObj
+  }
+}
 const Plugin = Proxyquire('../', {
-    'pg': stub.pg
-});
-const lab = exports.lab = Lab.script();
-let request;
-let server;
+  'knex': stub.knex
+})
 
+const lab = exports.lab = Lab.script()
+let request
+let server
 
-lab.beforeEach((done) => {
+const beforeEach = lab.beforeEach
+const afterEach = lab.afterEach
+const experiment = lab.experiment
+const describe = lab.describe
+const it = lab.it
+const expect = Code.expect
 
-    server = new Hapi.Server();
-    server.connection({ port: 0 });
-    server.route({
-        method: 'GET',
-        path: '/',
-        handler: function (req, reply) {
+beforeEach((done) => {
+  server = new Hapi.Server()
+  server.connection({ port: 0 })
+  server.route({
+    method: 'GET',
+    path: '/',
+    handler: function (req, reply) {
+      reply('success')
+    }
+  })
 
-            if (req.query.kill) {
-                req.pg.kill = true;
-            }
+  request = {
+    method: 'GET',
+    url: '/'
+  }
 
-            reply('hapi-node-postgres, at your service');
-        }
-    });
+  done()
+})
+afterEach((done) => {
+  tmp = null
+  done()
+})
 
-    request = {
-        method: 'GET',
-        url: '/'
-    };
-
-    done();
-});
-
-
-lab.experiment('Postgres Plugin', () => {
-
-    lab.test('it registers the plugin', (done) => {
-
-        server.register(Plugin, (err) => {
-
-            Code.expect(err).to.not.exist();
-            done();
-        });
-    });
-
-
-    lab.test('it returns an error when the connection fails in the extension point', (done) => {
-
-        const realConnect = stub.pg.connect;
-        stub.pg.connect = function (connection, callback) {
-
-            callback(Error('connect failed'));
-        };
-
-        server.register(Plugin, (err) => {
-
-            Code.expect(err).to.not.exist();
-
-            server.inject(request, (response) => {
-
-                Code.expect(response.statusCode).to.equal(500);
-                stub.pg.connect = realConnect;
-
-                done();
-            });
-        });
-    });
-
-
-    lab.test('it successfully returns when the connection succeeds in extension point', (done) => {
-
-        const realConnect = stub.pg.connect;
-        stub.pg.connect = function (connection, callback) {
-
-            const returnClient = () => {};
-
-            callback(null, {}, returnClient);
-        };
-
-        server.register(Plugin, (err) => {
-
-            Code.expect(err).to.not.exist();
-
-            server.inject(request, (response) => {
-
-                Code.expect(response.statusCode).to.equal(200);
-                stub.pg.connect = realConnect;
-
-                done();
-            });
-        });
-    });
-
-
-    lab.test('it successfully cleans up during the server tail event', (done) => {
-
-        const realConnect = stub.pg.connect;
-        stub.pg.connect = function (connection, callback) {
-
-            const returnClient = function (killSwitch) {
-
-                Code.expect(killSwitch).to.equal(true);
-                stub.pg.connect = realConnect;
-
-                done();
-            };
-
-            callback(null, {}, returnClient);
-        };
-
-        server.register(Plugin, (err) => {
-
-            Code.expect(err).to.not.exist();
-
-            request.url = '/?kill=true';
-
-            server.inject(request, (response) => {
-
-                Code.expect(response.statusCode).to.equal(200);
-                stub.pg.connect = realConnect;
-            });
-        });
-    });
-
-
-    lab.test('it successfully uses native bindings without error', (done) => {
-
+experiment('hapi-knex-postgres Plugin', () => {
+  lab.test('it registers the plugin', (done) => {
+    expect(() => {
+      server.register(Plugin, Hoek.ignore).to.throw('my error message')
+    })
+    done()
+  })
+  describe('Connection', () => {
+    describe('When connection is a string', () => {
+      it('Should connect to postgres', (done) => {
+        const connestionString = 'postgres://user:pass@localhost:1234/hapi-knex-postgres'
         const pluginWithConfig = {
-            register: Plugin,
-            options: {
-                connectionString: 'postgres://postgres:mysecretpassword@localhost/hapi_node_postgres',
-                native: true
-            }
-        };
-
+          register: Plugin,
+          options: {
+            connection: connestionString
+          }
+        }
         server.register(pluginWithConfig, (err) => {
-
-            Code.expect(err).to.not.exist();
-
-            server.inject(request, (response) => {
-
-                Code.expect(response.statusCode).to.equal(200);
-                done();
-            });
-        });
-    });
-});
+          expect(err).to.not.exist()
+          server.inject(request, (response) => {
+            expect(response.statusCode).to.equal(200)
+            expect(tmp.connection).to.equal(connestionString)
+            expect(tmp.client).to.equal('pg')
+            done()
+          })
+        })
+      })
+    })
+    describe('When connection is an object', () => {
+      it('Should connect to postgres', (done) => {
+        const pluginWithConfig = {
+          register: Plugin,
+          options: {
+            connection: {
+              host: '127.0.0.1',
+              user: 'your_database_user',
+              password: 'your_database_password',
+              database: 'myapp_test',
+              port: 1234
+            },
+            acquireConnectionTimeout: 2000
+          }
+        }
+        server.register(pluginWithConfig, (err) => {
+          expect(err).to.not.exist()
+          server.inject(request, (response) => {
+            expect(response.statusCode).to.equal(200)
+            expect(tmp.connection).to.be.an.object
+            expect(tmp.connection).to.include(['host', 'user', 'password', 'database', 'port'])
+            expect(tmp.client).to.equal('pg')
+            expect(tmp.debug).to.be.false
+            expect(tmp.acquireConnectionTimeout).to.be.equal(2000)
+            done()
+          })
+        })
+      })
+    })
+  })
+})
