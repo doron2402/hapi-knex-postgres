@@ -7,7 +7,9 @@
     "test": "./node_modules/.bin/lab -c",
     "test:cover": "./node_modules/.bin/lab -c -r html -o ./test/coverage.html",
     "lint": "./node_modules/.bin/standard",
-    "lint:fix": "./node_modules/.bin/standard --fix"
+    "lint:fix": "./node_modules/.bin/standard --fix",
+    "snyk-protect": "snyk protect",
+    "prepublish": "npm run snyk-protect"
   },
   "repository": {
     "type": "git",
@@ -45,6 +47,8 @@
   },
   "dependencies": {
     "hoek": "4.x.x",
-    "knex": "^0.12.6"
-  }
+    "knex": "^0.12.6",
+    "snyk": "^1.192.3"
+  },
+  "snyk": true
 }
